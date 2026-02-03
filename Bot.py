@@ -12,7 +12,7 @@ from telegram.ext import (
 TELEGRAM_TOKEN = "8259227124:AAEbRbHcrq-Y5N__ETzgu-x5tsdVdsf0aGI"
 NANOBANANO_API_KEY = "997e12baa9752221c7a98e7482fa5cd7"
 
-API_URL = "https://api.nanobnano.ai/v1/generate"
+API_URL = "https://nanobananaapi.ai/v1/generate"  # исправлено
 
 
 # ===== START =====
@@ -35,7 +35,8 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post(
             API_URL,
             headers={
-                "Authorization": f"Bearer {NANOBANANO_API_KEY}"
+                "Authorization": f"Bearer {NANOBANANO_API_KEY}",
+                "Content-Type": "application/json"
             },
             json={
                 "prompt": prompt,
@@ -44,10 +45,12 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         data = response.json()
+        image_url = data.get("image_url")
 
-        image_url = data["image_url"]
-
-        await update.message.reply_photo(image_url)
+        if image_url:
+            await update.message.reply_photo(image_url)
+        else:
+            await update.message.reply_text(f"Ошибка генерации: {data}")
 
     except Exception as e:
         await update.message.reply_text(f"Ошибка генерации: {e}")
@@ -69,26 +72,26 @@ async def edit_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await photo.get_file()
         file_path = await file.download_to_drive()
 
-        files = {
-            "image": open(file_path, "rb")
-        }
+        with open(file_path, "rb") as img_file:
+            files = {"image": img_file}
+            data = {"prompt": prompt, "size": "1024x1024"}
 
-        response = requests.post(
-            API_URL,
-            headers={
-                "Authorization": f"Bearer {NANOBANANO_API_KEY}"
-            },
-            data={
-                "prompt": prompt
-            },
-            files=files
-        )
+            response = requests.post(
+                API_URL,
+                headers={
+                    "Authorization": f"Bearer {NANOBANANO_API_KEY}"
+                },
+                data=data,
+                files=files
+            )
 
         data = response.json()
+        image_url = data.get("image_url")
 
-        image_url = data["image_url"]
-
-        await update.message.reply_photo(image_url)
+        if image_url:
+            await update.message.reply_photo(image_url)
+        else:
+            await update.message.reply_text(f"Ошибка редактирования: {data}")
 
     except Exception as e:
         await update.message.reply_text(f"Ошибка редактирования: {e}")
