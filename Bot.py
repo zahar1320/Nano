@@ -1,110 +1,62 @@
 import requests
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
+    ApplicationBuilder, CommandHandler,
+    MessageHandler, filters, ContextTypes
 )
 
 # ===== ТОКЕНЫ =====
 TELEGRAM_TOKEN = "8259227124:AAEbRbHcrq-Y5N__ETzgu-x5tsdVdsf0aGI"
 NANOBANANO_API_KEY = "997e12baa9752221c7a98e7482fa5cd7"
 
-API_URL = "https://nanobananaapi.ai/v1/generate"  # исправлено
+API_URL = "https://api.nanobananaapi.ai/api/v1/nanobanana/generate"
 
 
-# ===== START =====
+# ===== Команда /start =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 NanoBanano бот готов\n\n"
+        "🔥 NanoBanana бот готов!\n\n"
         "Напиши текст — сделаю картинку\n"
-        "Отправь фото + текст — отредактирую"
+        "Отправь фото + текст — пока работает только текст → картинка"
     )
 
 
-# ===== ГЕНЕРАЦИЯ ИЗ ТЕКСТА =====
+# ===== Генерация картинки из текста =====
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     prompt = update.message.text
-
     await update.message.reply_text("🎨 Генерирую картинку...")
 
-    try:
-        response = requests.post(
-            API_URL,
-            headers={
-                "Authorization": f"Bearer {NANOBANANO_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "prompt": prompt,
-                "size": "1024x1024"
-            }
-        )
+    headers = {
+        "Authorization": f"Bearer {NANOBANANO_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-        data = response.json()
-        image_url = data.get("image_url")
-
-        if image_url:
-            await update.message.reply_photo(image_url)
-        else:
-            await update.message.reply_text(f"Ошибка генерации: {data}")
-
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка генерации: {e}")
-
-
-# ===== РЕДАКТИРОВАНИЕ ФОТО =====
-async def edit_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not update.message.caption:
-        await update.message.reply_text("Добавь текст к фото")
-        return
-
-    prompt = update.message.caption
-
-    await update.message.reply_text("🛠 Редактирую фото...")
+    data = {
+        "prompt": prompt,
+        "type": "TEXTTOIAMGE",
+        "numImages": 1,
+        "callBackUrl": ""  # пока оставляем пустым
+    }
 
     try:
-        photo = update.message.photo[-1]
-        file = await photo.get_file()
-        file_path = await file.download_to_drive()
+        response = requests.post(API_URL, headers=headers, json=data)
+        result = response.json()
 
-        with open(file_path, "rb") as img_file:
-            files = {"image": img_file}
-            data = {"prompt": prompt, "size": "1024x1024"}
-
-            response = requests.post(
-                API_URL,
-                headers={
-                    "Authorization": f"Bearer {NANOBANANO_API_KEY}"
-                },
-                data=data,
-                files=files
-            )
-
-        data = response.json()
-        image_url = data.get("image_url")
-
-        if image_url:
-            await update.message.reply_photo(image_url)
+        if response.ok and result.get('code') == 200:
+            task_id = result['data']['taskId']
+            await update.message.reply_text(f"✅ Задача отправлена! Task ID: {task_id}\nКартинка скоро будет готова (Callback пока не используется).")
         else:
-            await update.message.reply_text(f"Ошибка редактирования: {data}")
-
+            await update.message.reply_text(f"Ошибка API: {result.get('msg', 'Unknown error')}")
     except Exception as e:
-        await update.message.reply_text(f"Ошибка редактирования: {e}")
+        await update.message.reply_text(f"Ошибка запроса: {e}")
 
 
-# ===== ЗАПУСК =====
+# ===== Запуск бота =====
 def main():
-
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_image))
-    app.add_handler(MessageHandler(filters.PHOTO, edit_photo))
 
     print("BOT STARTED")
     app.run_polling()
