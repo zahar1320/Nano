@@ -1,22 +1,111 @@
 import requests
-import nest_asyncio
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 
-nest_asyncio.apply()
-
-# === ТВОИ ТОКЕНЫ ===
+# ===== ТОКЕНЫ =====
 TELEGRAM_TOKEN = "8259227124:AAEbRbHcrq-Y5N__ETzgu-x5tsdVdsf0aGI"
 NANOBANANO_API_KEY = "997e12baa9752221c7a98e7482fa5cd7"
-NANOBANANO_API_URL = "https://api.nanobnano.ai/v1/images"
 
-# === Простейший старт ===
+API_URL = "https://api.nanobnano.ai/v1/generate"
+
+
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Бот живой 🚀")
+    await update.message.reply_text(
+        "🔥 NanoBanano бот готов\n\n"
+        "Напиши текст — сделаю картинку\n"
+        "Отправь фото + текст — отредактирую"
+    )
 
-# === Настройка приложения ===
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
 
-print("Бот запущен")
-app.run_polling()
+# ===== ГЕНЕРАЦИЯ ИЗ ТЕКСТА =====
+async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    prompt = update.message.text
+
+    await update.message.reply_text("🎨 Генерирую картинку...")
+
+    try:
+        response = requests.post(
+            API_URL,
+            headers={
+                "Authorization": f"Bearer {NANOBANANO_API_KEY}"
+            },
+            json={
+                "prompt": prompt,
+                "size": "1024x1024"
+            }
+        )
+
+        data = response.json()
+
+        image_url = data["image_url"]
+
+        await update.message.reply_photo(image_url)
+
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка генерации: {e}")
+
+
+# ===== РЕДАКТИРОВАНИЕ ФОТО =====
+async def edit_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message.caption:
+        await update.message.reply_text("Добавь текст к фото")
+        return
+
+    prompt = update.message.caption
+
+    await update.message.reply_text("🛠 Редактирую фото...")
+
+    try:
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        file_path = await file.download_to_drive()
+
+        files = {
+            "image": open(file_path, "rb")
+        }
+
+        response = requests.post(
+            API_URL,
+            headers={
+                "Authorization": f"Bearer {NANOBANANO_API_KEY}"
+            },
+            data={
+                "prompt": prompt
+            },
+            files=files
+        )
+
+        data = response.json()
+
+        image_url = data["image_url"]
+
+        await update.message.reply_photo(image_url)
+
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка редактирования: {e}")
+
+
+# ===== ЗАПУСК =====
+def main():
+
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_image))
+    app.add_handler(MessageHandler(filters.PHOTO, edit_photo))
+
+    print("BOT STARTED")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
