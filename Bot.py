@@ -14,8 +14,8 @@ from google.genai import types
 from PIL import Image
 
 # ===== ВСТАВЬ СВОЙ КЛЮЧ =====
-GEMINI_API_KEY = "PASTE_NEW_KEY_HERE"
-TELEGRAM_TOKEN = "PASTE_TELEGRAM_TOKEN"
+GEMINI_API_KEY = "AIzaSyB_9YQW0Jy9vAWMRIIb2EAhzd99p0SRAkY"
+TELEGRAM_TOKEN = "8259227124:AAEbRbHcrq-Y5N__ETzgu-x5tsdVdsf0aGI"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
