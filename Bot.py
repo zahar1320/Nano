@@ -1,155 +1,143 @@
-import time
-import requests
+import os
+import tempfile
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler,
-    MessageHandler, filters, ContextTypes
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
 )
 
-# ===== ТОКЕНЫ =====
-TELEGRAM_TOKEN = "8259227124:AAEbRbHcrq-Y5N__ETzgu-x5tsdVdsf0aGI"
-NANOBANANO_API_KEY = "997e12baa9752221c7a98e7482fa5cd7"
+from google import genai
+from google.genai import types
+from PIL import Image
 
-GENERATE_URL = "https://api.nanobananaapi.ai/api/v1/nanobanana/generate"
-STATUS_URL = "https://api.nanobananaapi.ai/api/v1/nanobanana/record-info"
+# ===== ВСТАВЬ СВОЙ КЛЮЧ =====
+GEMINI_API_KEY = "PASTE_NEW_KEY_HERE"
+TELEGRAM_TOKEN = "PASTE_TELEGRAM_TOKEN"
 
-# ===== Команда /start =====
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 NanoBanana бот готов!\n"
-        "Напиши текст — сделаю картинку\n"
-        "Или отправь фото с подписью — отредактирую её"
+        "🤖 Gemini AI Bot\n\n"
+        "Напиши текст — сделаю фото\n"
+        "Отправь фото + подпись — изменю фото\n"
+        "Напиши /video текст — сделаю видео"
     )
 
-# ===== Генерация из текста =====
-async def generate_text_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# ===== TEXT → IMAGE =====
+async def text_to_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    await update.message.reply_text("🎨 Отправляю задачу на генерацию...")
 
-    headers = {
-        "Authorization": f"Bearer {NANOBANANO_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "prompt": prompt,
-        "type": "TEXTTOIAMGE",
-        "numImages": 1,
-        "image_size": "1:1",
-        "callBackUrl": ""
-    }
+    await update.message.reply_text("🎨 Генерирую изображение...")
 
     try:
-        res = requests.post(GENERATE_URL, headers=headers, json=data)
-        result = res.json()
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp-image-generation",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            ),
+        )
 
-        if not res.ok or result.get("code") != 200:
-            await update.message.reply_text(f"Ошибка API: {result.get('msg','Unknown')}")
-            return
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                img = Image.open(
+                    tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                )
+                with open(img.filename, "wb") as f:
+                    f.write(part.inline_data.data)
 
-        task_id = result["data"].get("taskId")
-        await update.message.reply_text(f"✅ Задача отправлена! Task ID: {task_id}\n🕒 Жду готовности...")
-
-        # ===== Ожидаем результат =====
-        for _ in range(20):
-            time.sleep(2)
-            status_res = requests.get(
-                STATUS_URL,
-                params={"taskId": task_id},
-                headers={"Authorization": f"Bearer {NANOBANANO_API_KEY}"}
-            )
-            status_data = status_res.json()
-            if status_res.ok and status_data.get("code") == 200:
-                success_flag = status_data["data"].get("successFlag")
-                if success_flag == 1:
-                    image_url = status_data["data"]["response"].get("resultImageUrl")
-                    if image_url:
-                        await update.message.reply_photo(image_url)
-                        return
-                elif success_flag in (2, 3):
-                    await update.message.reply_text("❌ Ошибка генерации.")
-                    return
-
-        await update.message.reply_text("⌛ Картинка пока не готова, попробуй позже.")
+                await update.message.reply_photo(photo=img.filename)
 
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {e}")
 
-# ===== Редактирование фото (Image-to-Image) =====
-async def edit_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# ===== IMAGE → IMAGE =====
+async def edit_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.caption:
-        await update.message.reply_text("Добавь текст к фото для редактирования")
+        await update.message.reply_text("Добавь описание изменений к фото")
         return
 
     prompt = update.message.caption
     photo = update.message.photo[-1]
 
-    await update.message.reply_text("🛠 Отправляю задачу на редактирование фото...")
+    await update.message.reply_text("🛠 Изменяю изображение...")
 
-    # Скачиваем фото
     file = await photo.get_file()
-    file_path = await file.download_to_drive()
+    path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+    await file.download_to_drive(path)
 
-    headers = {
-        "Authorization": f"Bearer {NANOBANANO_API_KEY}"
-    }
-
-    files = {
-        "image": open(file_path, "rb")
-    }
-
-    data = {
-        "prompt": prompt,
-        "type": "IMAGETOIMAGE",
-        "numImages": 1,
-        "image_size": "1:1",
-        "callBackUrl": ""
-    }
+    img = Image.open(path)
 
     try:
-        res = requests.post(GENERATE_URL, headers=headers, files=files, data=data)
-        result = res.json()
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp-image-generation",
+            contents=[prompt, img],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            ),
+        )
 
-        if not res.ok or result.get("code") != 200:
-            await update.message.reply_text(f"Ошибка API: {result.get('msg','Unknown')}")
-            return
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                out = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
 
-        task_id = result["data"].get("taskId")
-        await update.message.reply_text(f"✅ Задача на редактирование отправлена! Task ID: {task_id}\n🕒 Жду готовности...")
+                with open(out, "wb") as f:
+                    f.write(part.inline_data.data)
 
-        # ===== Ожидаем результат =====
-        for _ in range(20):
-            time.sleep(2)
-            status_res = requests.get(
-                STATUS_URL,
-                params={"taskId": task_id},
-                headers={"Authorization": f"Bearer {NANOBANANO_API_KEY}"}
-            )
-            status_data = status_res.json()
-            if status_res.ok and status_data.get("code") == 200:
-                success_flag = status_data["data"].get("successFlag")
-                if success_flag == 1:
-                    image_url = status_data["data"]["response"].get("resultImageUrl")
-                    if image_url:
-                        await update.message.reply_photo(image_url)
-                        return
-                elif success_flag in (2, 3):
-                    await update.message.reply_text("❌ Ошибка редактирования.")
-                    return
-
-        await update.message.reply_text("⌛ Фото пока не готово, попробуй позже.")
+                await update.message.reply_photo(out)
 
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {e}")
 
-# ===== Запуск бота =====
+
+# ===== VIDEO GENERATION =====
+async def generate_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = " ".join(context.args)
+
+    if not prompt:
+        await update.message.reply_text("Используй /video описание")
+        return
+
+    await update.message.reply_text("🎬 Генерирую видео...")
+
+    try:
+        operation = client.models.generate_videos(
+            model="veo-2.0-generate-001",
+            prompt=prompt
+        )
+
+        video = operation.result().generated_videos[0]
+
+        path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+
+        client.files.download(file=video.video, path=path)
+
+        await update.message.reply_video(video=path)
+
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка видео: {e}")
+
+
+# ===== MAIN =====
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_text_image))
-    app.add_handler(MessageHandler(filters.PHOTO, edit_photo))
+    app.add_handler(CommandHandler("video", generate_video))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_image))
+    app.add_handler(MessageHandler(filters.PHOTO, edit_image))
+
     print("BOT STARTED")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
